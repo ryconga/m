@@ -1,4 +1,8 @@
-local Modular = {}
+-- TrinityUI - Modern 3-Panel Interface Library
+-- Features: Glassmorphism, 60fps animations, icon system, responsive layout
+
+local Trinity = {}
+Trinity.__index = Trinity
 
 -- Service Caching
 local Services = {}
@@ -18,31 +22,18 @@ local Stats = GetService("Stats")
 local HttpService = GetService("HttpService")
 local TextService = GetService("TextService")
 local MarketplaceService = GetService("MarketplaceService")
-local RbxAnalyticsService = GetService("RbxAnalyticsService")
+local ReplicatedStorage = GetService("ReplicatedStorage")
 
 local LocalPlayer = Players.LocalPlayer
 local CoreGui = GetService("CoreGui")
 
--- Exploit Compatibility
-local function IsFunctionSupported(funcName)
-    local env = getgenv and getgenv() or _G
-    if funcName == "getgenv" then return getgenv ~= nil end
-    if funcName == "writefile" then return writefile ~= nil end
-    if funcName == "readfile" then return readfile ~= nil end
-    if funcName == "isfolder" then return isfolder ~= nil end
-    if funcName == "makefolder" then return makefolder ~= nil end
-    if funcName == "isfile" then return isfile ~= nil end
-    return false
-end
-
-local SafeFileSystem = {
+-- File System Compatibility
+local SafeFile = {
     Write = function(path, content)
-        if IsFunctionSupported("writefile") then
-            pcall(function() writefile(path, content) end)
-        end
+        if writefile then pcall(function() writefile(path, content) end) end
     end,
     Read = function(path)
-        if IsFunctionSupported("readfile") and IsFunctionSupported("isfile") then
+        if readfile and isfile then
             if isfile(path) then
                 local ok, data = pcall(function() return readfile(path) end)
                 if ok then return data end
@@ -51,17 +42,11 @@ local SafeFileSystem = {
         return nil
     end,
     MakeFolder = function(path)
-        if IsFunctionSupported("makefolder") and IsFunctionSupported("isfolder") then
+        if makefolder and isfolder then
             if not isfolder(path) then
                 pcall(function() makefolder(path) end)
             end
         end
-    end,
-    IsFolder = function(path)
-        if IsFunctionSupported("isfolder") then
-            return isfolder(path)
-        end
-        return false
     end,
     JSONEncode = function(data)
         local ok, result = pcall(function() return HttpService:JSONEncode(data) end)
@@ -73,53 +58,57 @@ local SafeFileSystem = {
     end
 }
 
-local GlobalEnv = getgenv and getgenv() or _G
-if not GlobalEnv.ModularStorage then
-    GlobalEnv.ModularStorage = {}
-end
-
--- Cleanup
-local function CleanupExisting()
-    local existing = CoreGui:FindFirstChild("ModularUI")
-    if existing then
-        pcall(function() existing:Destroy() end)
-    end
-    for _, v in ipairs(Lighting:GetChildren()) do
-        if v:IsA("BlurEffect") and v.Name == "ModularBlur" then
-            pcall(function() v:Destroy() end)
-        end
-    end
-end
-
-CleanupExisting()
-
--- Vape V4 Style Theme
-Modular.Theme = {
-    Background = Color3.fromRGB(20, 20, 20),
-    Accent = Color3.fromRGB(255, 182, 193),
-    Stroke = Color3.fromRGB(40, 40, 40),
-    TextMain = Color3.fromRGB(255, 255, 255),
-    TextDim = Color3.fromRGB(150, 150, 150),
-    DarkContainer = Color3.fromRGB(30, 30, 30),
-    Hover = Color3.fromRGB(45, 45, 45),
-    Selected = Color3.fromRGB(35, 35, 35)
+-- Theme System
+Trinity.Theme = {
+    -- Backgrounds (Glassmorphism)
+    PanelBg = Color3.fromRGB(25, 25, 30),
+    PanelBgTransparent = Color3.fromRGB(25, 25, 30),
+    ContainerBg = Color3.fromRGB(35, 35, 42),
+    ElevatedBg = Color3.fromRGB(45, 45, 55),
+    
+    -- Accents
+    Primary = Color3.fromRGB(99, 102, 241),      -- Indigo
+    Secondary = Color3.fromRGB(139, 92, 246),    -- Violet
+    Success = Color3.fromRGB(34, 197, 94),       -- Green
+    Warning = Color3.fromRGB(251, 146, 60),      -- Orange
+    Danger = Color3.fromRGB(239, 68, 68),        -- Red
+    Info = Color3.fromRGB(59, 130, 246),         -- Blue
+    
+    -- Text
+    TextPrimary = Color3.fromRGB(255, 255, 255),
+    TextSecondary = Color3.fromRGB(160, 160, 170),
+    TextMuted = Color3.fromRGB(120, 120, 130),
+    
+    -- Effects
+    GlassTransparency = 0.15,
+    BorderColor = Color3.fromRGB(60, 60, 70),
+    GlowColor = Color3.fromRGB(99, 102, 241),
+    
+    -- Animation
+    AnimationSpeed = 0.3,
+    EasingStyle = Enum.EasingStyle.Quart,
+    EasingDirection = Enum.EasingDirection.Out
 }
 
--- Accent Tracking
-local AccentElements = {Frames = {}, Strokes = {}, TextLabels = {}, Sliders = {}}
-local function TrackAccentElement(obj, elemType)
-    local list = AccentElements[elemType .. "s"] or AccentElements[elemType]
-    if list then
-        table.insert(list, obj)
-    end
-end
+-- State Management
+Trinity.State = {
+    CurrentTab = nil,
+    Tabs = {},
+    Components = {},
+    Accents = {},
+    Draggables = {},
+    Config = {},
+    StreamerMode = false,
+    UIVisible = true,
+    Keybinds = {}
+}
 
--- Safe Tween
+-- Utility Functions
 local function SafeTween(obj, properties, duration, style, direction)
     if not obj or not obj.Parent then return nil end
-    duration = duration or 0.2
-    style = style or Enum.EasingStyle.Quad
-    direction = direction or Enum.EasingDirection.Out
+    duration = duration or Trinity.Theme.AnimationSpeed
+    style = style or Trinity.Theme.EasingStyle
+    direction = direction or Trinity.Theme.EasingDirection
     
     local tweenInfo = TweenInfo.new(duration, style, direction)
     local ok, tween = pcall(function()
@@ -133,434 +122,574 @@ local function SafeTween(obj, properties, duration, style, direction)
     return nil
 end
 
--- Update Accent
-local function UpdateAccentColor(newColor)
-    if typeof(newColor) ~= "Color3" then return end
-    Modular.Theme.Accent = newColor
+local function AddGlassEffects(parent, cornerRadius)
+    cornerRadius = cornerRadius or 8
+    
+    -- Corner radius
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, cornerRadius)
+    corner.Parent = parent
+    
+    -- Subtle border
+    local stroke = Instance.new("UIStroke")
+    stroke.Thickness = 1
+    stroke.Color = Trinity.Theme.BorderColor
+    stroke.Transparency = 0.6
+    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    stroke.Parent = parent
+    
+    -- Shadow/Glow effect
+    local shadow = Instance.new("ImageLabel")
+    shadow.Name = "Shadow"
+    shadow.AnchorPoint = Vector2.new(0.5, 0.5)
+    shadow.BackgroundTransparency = 1
+    shadow.Position = UDim2.new(0.5, 0, 0.5, 4)
+    shadow.Size = UDim2.new(1, 8, 1, 8)
+    shadow.Image = "rbxassetid://131604521937018"
+    shadow.ImageColor3 = Color3.fromRGB(0, 0, 0)
+    shadow.ImageTransparency = 0.8
+    shadow.ScaleType = Enum.ScaleType.Slice
+    shadow.SliceCenter = Rect.new(10, 10, 118, 118)
+    shadow.ZIndex = parent.ZIndex - 1
+    shadow.Parent = parent
+    
+    return stroke, shadow
+end
 
-    for _, obj in pairs(AccentElements.Frames) do
-        if obj and obj.Parent then
-            SafeTween(obj, {BackgroundColor3 = newColor})
-        end
+local function CreateIcon(name, size, color)
+    local iconMap = {
+        home = "rbxassetid://7733960981",
+        settings = "rbxassetid://7734053495",
+        user = "rbxassetid://7733955740",
+        search = "rbxassetid://7733954762",
+        bell = "rbxassetid://7733955740",
+        menu = "rbxassetid://7733959095",
+        close = "rbxassetid://7733955740",
+        check = "rbxassetid://7733955740",
+        edit = "rbxassetid://7733955740",
+        trash = "rbxassetid://7733955740",
+        plus = "rbxassetid://7733955740",
+        minus = "rbxassetid://7733955740",
+        sun = "rbxassetid://7733955740",
+        moon = "rbxassetid://7733955740",
+        game = "rbxassetid://7733955740",
+        code = "rbxassetid://7733955740",
+        terminal = "rbxassetid://7733955740",
+        shield = "rbxassetid://7733955740",
+        zap = "rbxassetid://7733955740",
+        activity = "rbxassetid://7733955740"
+    }
+    
+    local icon = Instance.new("ImageLabel")
+    icon.Size = size or UDim2.fromOffset(20, 20)
+    icon.BackgroundTransparency = 1
+    icon.Image = iconMap[name] or iconMap.menu
+    icon.ImageColor3 = color or Trinity.Theme.TextPrimary
+    return icon
+end
+
+-- Cleanup Previous Instances
+local function Cleanup()
+    local existing = CoreGui:FindFirstChild("TrinityUI")
+    if existing then
+        pcall(function() existing:Destroy() end)
     end
-    for _, obj in pairs(AccentElements.Strokes) do
-        if obj and obj.Parent then
-            SafeTween(obj, {Color = newColor})
-        end
-    end
-    for _, obj in pairs(AccentElements.TextLabels) do
-        if obj and obj.Parent then
-            SafeTween(obj, {TextColor3 = newColor})
-        end
-    end
-    for _, obj in pairs(AccentElements.Sliders) do
-        if obj and obj.Parent then
-            SafeTween(obj, {BackgroundColor3 = newColor})
+    
+    for _, v in ipairs(Lighting:GetChildren()) do
+        if v.Name:find("Trinity") then
+            pcall(function() v:Destroy() end)
         end
     end
 end
 
--- UI Construction
+Cleanup()
+
+-- Initialize Main GUI
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "ModularUI"
+ScreenGui.Name = "TrinityUI"
 ScreenGui.Parent = CoreGui
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.ResetOnSpawn = false
+ScreenGui.DisplayOrder = 999
 
+Trinity.ScreenGui = ScreenGui
+
+-- Blur Effect
 local Blur = Instance.new("BlurEffect")
-Blur.Name = "ModularBlur"
+Blur.Name = "TrinityBlur"
 Blur.Size = 0
 Blur.Enabled = true
 Blur.Parent = Lighting
 
-Modular.ScreenGui = ScreenGui
-Modular.Blur = Blur
-
--- WATERMARK (Top Right - Vape Style)
-local WatermarkFrame = Instance.new("Frame")
-WatermarkFrame.Name = "Watermark"
-WatermarkFrame.Parent = ScreenGui
-WatermarkFrame.BackgroundColor3 = Modular.Theme.Background
-WatermarkFrame.Position = UDim2.new(1, -210, 0, 10)
-WatermarkFrame.Size = UDim2.new(0, 200, 0, 30)
-WatermarkFrame.BorderSizePixel = 0
-
-local WatermarkCorner = Instance.new("UICorner")
-WatermarkCorner.CornerRadius = UDim.new(0, 4)
-WatermarkCorner.Parent = WatermarkFrame
-
-local WatermarkStroke = Instance.new("UIStroke")
-WatermarkStroke.Color = Modular.Theme.Stroke
-WatermarkStroke.Thickness = 1
-WatermarkStroke.Parent = WatermarkFrame
-
-local WatermarkLayout = Instance.new("UIListLayout")
-WatermarkLayout.Parent = WatermarkFrame
-WatermarkLayout.FillDirection = Enum.FillDirection.Horizontal
-WatermarkLayout.SortOrder = Enum.SortOrder.LayoutOrder
-WatermarkLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-WatermarkLayout.Padding = UDim.new(0, 8)
-
-local WatermarkPadding = Instance.new("UIPadding")
-WatermarkPadding.Parent = WatermarkFrame
-WatermarkPadding.PaddingLeft = UDim.new(0, 10)
-WatermarkPadding.PaddingRight = UDim.new(0, 10)
-
-local NameLabel = Instance.new("TextLabel")
-NameLabel.Parent = WatermarkFrame
-NameLabel.BackgroundTransparency = 1
-NameLabel.Font = Enum.Font.GothamBold
-NameLabel.Text = "MODULAR"
-NameLabel.TextColor3 = Modular.Theme.Accent
-NameLabel.TextSize = 12
-NameLabel.Size = UDim2.new(0, 60, 1, 0)
-
-local fpsLabel = Instance.new("TextLabel")
-fpsLabel.Parent = WatermarkFrame
-fpsLabel.BackgroundTransparency = 1
-fpsLabel.Font = Enum.Font.GothamMedium
-fpsLabel.Text = "0 FPS"
-fpsLabel.TextColor3 = Modular.Theme.TextMain
-fpsLabel.TextSize = 11
-fpsLabel.Size = UDim2.new(0, 40, 1, 0)
-
-local pingLabel = Instance.new("TextLabel")
-pingLabel.Parent = WatermarkFrame
-pingLabel.BackgroundTransparency = 1
-pingLabel.Font = Enum.Font.GothamMedium
-pingLabel.Text = "0 MS"
-pingLabel.TextColor3 = Modular.Theme.TextMain
-pingLabel.TextSize = 11
-pingLabel.Size = UDim2.new(0, 40, 1, 0)
-
-local timeLabel = Instance.new("TextLabel")
-timeLabel.Parent = WatermarkFrame
-timeLabel.BackgroundTransparency = 1
-timeLabel.Font = Enum.Font.GothamMedium
-timeLabel.Text = "00:00"
-timeLabel.TextColor3 = Modular.Theme.TextDim
-timeLabel.TextSize = 11
-timeLabel.Size = UDim2.new(0, 40, 1, 0)
-
-RunService.RenderStepped:Connect(function(dt)
-    fpsLabel.Text = math.floor(1/dt) .. " FPS"
-    local ping = Stats.Network.ServerStatsItem["Data Ping"]:GetValue()
-    pingLabel.Text = math.floor(ping) .. " MS"
-    timeLabel.Text = os.date("%H:%M")
-end)
-
--- MAIN UI CONTAINER (Top Left - Vape V4 Style Dropdown)
+-- Main Container (3 Panels)
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
 MainFrame.Parent = ScreenGui
-MainFrame.BackgroundColor3 = Modular.Theme.Background
-MainFrame.Position = UDim2.new(0, 10, 0, 10)
-MainFrame.Size = UDim2.new(0, 220, 0, 35) -- Compact header only initially
-MainFrame.BorderSizePixel = 0
+MainFrame.BackgroundTransparency = 1
+MainFrame.Position = UDim2.new(0.5, -550, 0.5, -300)
+MainFrame.Size = UDim2.new(0, 1100, 0, 600)
 MainFrame.ClipsDescendants = true
 
-local MainCorner = Instance.new("UICorner")
-MainCorner.CornerRadius = UDim.new(0, 4)
-MainCorner.Parent = MainFrame
+Trinity.MainFrame = MainFrame
 
-local MainStroke = Instance.new("UIStroke")
-MainStroke.Color = Modular.Theme.Stroke
-MainStroke.Thickness = 1
-MainStroke.Parent = MainFrame
+-- ==========================================
+-- PANEL 1: NAVIGATION SIDEBAR (Left, 240px)
+-- ==========================================
+local Sidebar = Instance.new("Frame")
+Sidebar.Name = "Sidebar"
+Sidebar.Parent = MainFrame
+Sidebar.BackgroundColor3 = Trinity.Theme.PanelBg
+Sidebar.BackgroundTransparency = Trinity.Theme.GlassTransparency
+Sidebar.Size = UDim2.new(0, 240, 1, 0)
+Sidebar.Position = UDim2.new(0, 0, 0, 0)
 
-Modular.MainFrame = MainFrame
+AddGlassEffects(Sidebar, 12)
 
--- Header
-local Header = Instance.new("Frame")
-Header.Name = "Header"
-Header.Parent = MainFrame
-Header.BackgroundColor3 = Modular.Theme.DarkContainer
-Header.Size = UDim2.new(1, 0, 0, 35)
-Header.BorderSizePixel = 0
+-- Sidebar Header
+local SidebarHeader = Instance.new("Frame")
+SidebarHeader.Name = "Header"
+SidebarHeader.Parent = Sidebar
+SidebarHeader.BackgroundTransparency = 1
+SidebarHeader.Size = UDim2.new(1, 0, 0, 80)
 
-local HeaderCorner = Instance.new("UICorner")
-HeaderCorner.CornerRadius = UDim.new(0, 4)
-HeaderCorner.Parent = Header
+local LogoFrame = Instance.new("Frame")
+LogoFrame.Parent = SidebarHeader
+LogoFrame.BackgroundTransparency = 1
+LogoFrame.Position = UDim2.new(0, 20, 0, 20)
+LogoFrame.Size = UDim2.new(1, -40, 0, 40)
 
-local TitleLabel = Instance.new("TextLabel")
-TitleLabel.Parent = Header
-TitleLabel.BackgroundTransparency = 1
-TitleLabel.Position = UDim2.new(0, 10, 0, 0)
-TitleLabel.Size = UDim2.new(1, -50, 1, 0)
-TitleLabel.Font = Enum.Font.GothamBold
-TitleLabel.Text = "MODULAR"
-TitleLabel.TextColor3 = Modular.Theme.TextMain
-TitleLabel.TextSize = 14
-TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+local LogoIcon = CreateIcon("zap", UDim2.fromOffset(32, 32), Trinity.Theme.Primary)
+LogoIcon.Parent = LogoFrame
+LogoIcon.Position = UDim2.new(0, 0, 0, 4)
 
-local ToggleBtn = Instance.new("TextButton")
-ToggleBtn.Parent = Header
-ToggleBtn.BackgroundTransparency = 1
-ToggleBtn.Position = UDim2.new(1, -35, 0, 0)
-ToggleBtn.Size = UDim2.new(0, 35, 1, 0)
-ToggleBtn.Text = "+"
-ToggleBtn.TextColor3 = Modular.Theme.TextMain
-ToggleBtn.TextSize = 18
-ToggleBtn.Font = Enum.Font.GothamBold
+local LogoText = Instance.new("TextLabel")
+LogoText.Parent = LogoFrame
+LogoText.BackgroundTransparency = 1
+LogoText.Position = UDim2.new(0, 42, 0, 0)
+LogoText.Size = UDim2.new(1, -42, 1, 0)
+LogoText.Font = Enum.Font.GothamBold
+LogoText.Text = "TRINITY"
+LogoText.TextColor3 = Trinity.Theme.TextPrimary
+LogoText.TextSize = 24
+LogoText.TextXAlignment = Enum.TextXAlignment.Left
 
--- Categories Container
-local CategoriesContainer = Instance.new("Frame")
-CategoriesContainer.Name = "Categories"
-CategoriesContainer.Parent = MainFrame
-CategoriesContainer.BackgroundTransparency = 1
-CategoriesContainer.Position = UDim2.new(0, 0, 0, 35)
-CategoriesContainer.Size = UDim2.new(1, 0, 1, -35)
+local LogoSub = Instance.new("TextLabel")
+LogoSub.Parent = LogoFrame
+LogoSub.BackgroundTransparency = 1
+LogoSub.Position = UDim2.new(0, 42, 0, 28)
+LogoSub.Size = UDim2.new(1, -42, 0, 16)
+LogoSub.Font = Enum.Font.GothamMedium
+LogoSub.Text = "v2.0.0"
+LogoSub.TextColor3 = Trinity.Theme.TextMuted
+LogoSub.TextSize = 12
+LogoSub.TextXAlignment = Enum.TextXAlignment.Left
 
-local CategoriesLayout = Instance.new("UIListLayout")
-CategoriesLayout.Parent = CategoriesContainer
-CategoriesLayout.SortOrder = Enum.SortOrder.LayoutOrder
+-- Navigation Container
+local NavContainer = Instance.new("ScrollingFrame")
+NavContainer.Name = "NavContainer"
+NavContainer.Parent = Sidebar
+NavContainer.BackgroundTransparency = 1
+NavContainer.Position = UDim2.new(0, 0, 0, 90)
+NavContainer.Size = UDim2.new(1, 0, 1, -180)
+NavContainer.ScrollBarThickness = 2
+NavContainer.ScrollBarImageColor3 = Trinity.Theme.Primary
+NavContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
 
--- State
-local isExpanded = false
-local Categories = {}
-local ActiveCategory = nil
+local NavLayout = Instance.new("UIListLayout")
+NavLayout.Parent = NavContainer
+NavLayout.Padding = UDim.new(0, 4)
+NavLayout.SortOrder = Enum.SortOrder.LayoutOrder
 
--- Toggle Animation
-local function UpdateToggleIcon()
-    SafeTween(ToggleBtn, {Rotation = isExpanded and 45 or 0}, 0.2)
-    ToggleBtn.Text = isExpanded and "×" or "+"
+-- Section Template
+local function CreateSection(title)
+    local section = Instance.new("Frame")
+    section.BackgroundTransparency = 1
+    section.Size = UDim2.new(1, 0, 0, 30)
+    section.LayoutOrder = #Trinity.State.Tabs * 10
+    
+    local label = Instance.new("TextLabel")
+    label.Parent = section
+    label.BackgroundTransparency = 1
+    label.Position = UDim2.new(0, 20, 0, 10)
+    label.Size = UDim2.new(1, -40, 0, 20)
+    label.Font = Enum.Font.GothamBold
+    label.Text = title:upper()
+    label.TextColor3 = Trinity.Theme.TextMuted
+    label.TextSize = 11
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    
+    return section
 end
 
-local function ToggleUI()
-    isExpanded = not isExpanded
-    local targetSize = isExpanded and UDim2.new(0, 220, 0, math.min(400, 35 + (#Categories * 40) + 10)) or UDim2.new(0, 220, 0, 35)
+-- User Profile Card (Bottom)
+local ProfileCard = Instance.new("Frame")
+ProfileCard.Name = "ProfileCard"
+ProfileCard.Parent = Sidebar
+ProfileCard.BackgroundColor3 = Trinity.Theme.ElevatedBg
+ProfileCard.BackgroundTransparency = 0.3
+ProfileCard.Position = UDim2.new(0, 15, 1, -75)
+ProfileCard.Size = UDim2.new(1, -30, 0, 60)
+
+AddGlassEffects(ProfileCard, 8)
+
+local Avatar = Instance.new("ImageLabel")
+Avatar.Parent = ProfileCard
+Avatar.BackgroundColor3 = Trinity.Theme.ContainerBg
+Avatar.Position = UDim2.new(0, 10, 0.5, -20)
+Avatar.Size = UDim2.fromOffset(40, 40)
+Avatar.Image = ""
+
+local AvatarCorner = Instance.new("UICorner")
+AvatarCorner.CornerRadius = UDim.new(0, 20)
+AvatarCorner.Parent = Avatar
+
+local success, thumb = pcall(function()
+    return Players:GetUserThumbnailAsync(LocalPlayer.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size48x48)
+end)
+Avatar.Image = success and thumb or ""
+
+local UserName = Instance.new("TextLabel")
+UserName.Parent = ProfileCard
+UserName.BackgroundTransparency = 1
+UserName.Position = UDim2.new(0, 60, 0, 12)
+UserName.Size = UDim2.new(1, -70, 0, 20)
+UserName.Font = Enum.Font.GothamBold
+UserName.Text = LocalPlayer.Name
+UserName.TextColor3 = Trinity.Theme.TextPrimary
+UserName.TextSize = 14
+UserName.TextXAlignment = Enum.TextXAlignment.Left
+
+local UserStatus = Instance.new("TextLabel")
+UserStatus.Parent = ProfileCard
+UserStatus.BackgroundTransparency = 1
+UserStatus.Position = UDim2.new(0, 60, 0, 32)
+UserStatus.Size = UDim2.new(1, -70, 0, 16)
+UserStatus.Font = Enum.Font.GothamMedium
+UserStatus.Text = "Premium"
+UserStatus.TextColor3 = Trinity.Theme.Success
+UserStatus.TextSize = 11
+UserStatus.TextXAlignment = Enum.TextXAlignment.Left
+
+-- ==========================================
+-- PANEL 2: MAIN CONTENT (Center, 620px)
+-- ==========================================
+local ContentPanel = Instance.new("Frame")
+ContentPanel.Name = "ContentPanel"
+ContentPanel.Parent = MainFrame
+ContentPanel.BackgroundColor3 = Trinity.Theme.PanelBg
+ContentPanel.BackgroundTransparency = Trinity.Theme.GlassTransparency
+ContentPanel.Position = UDim2.new(0, 250, 0, 0)
+ContentPanel.Size = UDim2.new(0, 620, 1, 0)
+
+AddGlassEffects(ContentPanel, 12)
+
+-- Content Header
+local ContentHeader = Instance.new("Frame")
+ContentHeader.Name = "Header"
+ContentHeader.Parent = ContentPanel
+ContentHeader.BackgroundTransparency = 1
+ContentHeader.Size = UDim2.new(1, 0, 0, 70)
+
+local Breadcrumb = Instance.new("TextLabel")
+Breadcrumb.Parent = ContentHeader
+Breadcrumb.BackgroundTransparency = 1
+Breadcrumb.Position = UDim2.new(0, 25, 0, 15)
+Breadcrumb.Size = UDim2.new(0.5, 0, 0, 20)
+Breadcrumb.Font = Enum.Font.GothamMedium
+Breadcrumb.Text = "Dashboard / Overview"
+Breadcrumb.TextColor3 = Trinity.Theme.TextMuted
+Breadcrumb.TextSize = 12
+Breadcrumb.TextXAlignment = Enum.TextXAlignment.Left
+
+local PageTitle = Instance.new("TextLabel")
+PageTitle.Parent = ContentHeader
+PageTitle.BackgroundTransparency = 1
+PageTitle.Position = UDim2.new(0, 25, 0, 35)
+PageTitle.Size = UDim2.new(0.5, 0, 0, 30)
+PageTitle.Font = Enum.Font.GothamBold
+PageTitle.Text = "Overview"
+PageTitle.TextColor3 = Trinity.Theme.TextPrimary
+PageTitle.TextSize = 24
+PageTitle.TextXAlignment = Enum.TextXAlignment.Left
+
+-- Search Bar
+local SearchBox = Instance.new("Frame")
+SearchBox.Parent = ContentHeader
+SearchBox.BackgroundColor3 = Trinity.Theme.ContainerBg
+SearchBox.Position = UDim2.new(1, -220, 0.5, -18)
+SearchBox.Size = UDim2.new(0, 200, 0, 36)
+
+AddGlassEffects(SearchBox, 18)
+
+local SearchIcon = CreateIcon("search", UDim2.fromOffset(16, 16), Trinity.Theme.TextMuted)
+SearchIcon.Parent = SearchBox
+SearchIcon.Position = UDim2.new(0, 12, 0.5, -8)
+
+local SearchInput = Instance.new("TextBox")
+SearchInput.Parent = SearchBox
+SearchInput.BackgroundTransparency = 1
+SearchInput.Position = UDim2.new(0, 36, 0, 0)
+SearchInput.Size = UDim2.new(1, -48, 1, 0)
+SearchInput.Font = Enum.Font.GothamMedium
+SearchInput.Text = ""
+SearchInput.PlaceholderText = "Search..."
+SearchInput.TextColor3 = Trinity.Theme.TextPrimary
+SearchInput.PlaceholderColor3 = Trinity.Theme.TextMuted
+SearchInput.TextSize = 14
+SearchInput.TextXAlignment = Enum.TextXAlignment.Left
+
+-- Content Area (Two Columns)
+local ContentArea = Instance.new("Frame")
+ContentArea.Name = "ContentArea"
+ContentArea.Parent = ContentPanel
+ContentArea.BackgroundTransparency = 1
+ContentArea.Position = UDim2.new(0, 0, 0, 80)
+ContentArea.Size = UDim2.new(1, 0, 1, -90)
+
+local LeftColumn = Instance.new("ScrollingFrame")
+LeftColumn.Name = "LeftColumn"
+LeftColumn.Parent = ContentArea
+LeftColumn.BackgroundTransparency = 1
+LeftColumn.Position = UDim2.new(0, 20, 0, 0)
+LeftColumn.Size = UDim2.new(0.5, -30, 1, 0)
+LeftColumn.ScrollBarThickness = 0
+LeftColumn.CanvasSize = UDim2.new(0, 0, 0, 0)
+
+local RightColumn = Instance.new("ScrollingFrame")
+RightColumn.Name = "RightColumn"
+RightColumn.Parent = ContentArea
+RightColumn.BackgroundTransparency = 1
+RightColumn.Position = UDim2.new(0.5, 10, 0, 0)
+RightColumn.Size = UDim2.new(0.5, -30, 1, 0)
+RightColumn.ScrollBarThickness = 0
+RightColumn.CanvasSize = UDim2.new(0, 0, 0, 0)
+
+-- Layout managers
+local LeftLayout = Instance.new("UIListLayout")
+LeftLayout.Parent = LeftColumn
+LeftLayout.Padding = UDim.new(0, 16)
+LeftLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+local RightLayout = Instance.new("UIListLayout")
+RightLayout.Parent = RightColumn
+RightLayout.Padding = UDim.new(0, 16)
+RightLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+-- Auto-canvas sizing
+LeftLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    LeftColumn.CanvasSize = UDim2.new(0, 0, 0, LeftLayout.AbsoluteContentSize.Y + 20)
+end)
+
+RightLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    RightColumn.CanvasSize = UDim2.new(0, 0, 0, RightLayout.AbsoluteContentSize.Y + 20)
+end)
+
+-- ==========================================
+-- PANEL 3: INSPECTOR/PROPERTIES (Right, 220px)
+-- ==========================================
+local InspectorPanel = Instance.new("Frame")
+InspectorPanel.Name = "InspectorPanel"
+InspectorPanel.Parent = MainFrame
+InspectorPanel.BackgroundColor3 = Trinity.Theme.PanelBg
+InspectorPanel.BackgroundTransparency = Trinity.Theme.GlassTransparency
+InspectorPanel.Position = UDim2.new(0, 880, 0, 0)
+InspectorPanel.Size = UDim2.new(0, 220, 1, 0)
+
+AddGlassEffects(InspectorPanel, 12)
+
+-- Inspector Header
+local InspectorHeader = Instance.new("Frame")
+InspectorHeader.Name = "Header"
+InspectorHeader.Parent = InspectorPanel
+InspectorHeader.BackgroundTransparency = 1
+InspectorHeader.Size = UDim2.new(1, 0, 0, 70)
+
+local InspectorTitle = Instance.new("TextLabel")
+InspectorTitle.Parent = InspectorHeader
+InspectorTitle.BackgroundTransparency = 1
+InspectorTitle.Position = UDim2.new(0, 20, 0, 25)
+InspectorTitle.Size = UDim2.new(1, -40, 0, 30)
+InspectorTitle.Font = Enum.Font.GothamBold
+InspectorTitle.Text = "Properties"
+InspectorTitle.TextColor3 = Trinity.Theme.TextPrimary
+InspectorTitle.TextSize = 18
+InspectorTitle.TextXAlignment = Enum.TextXAlignment.Left
+
+-- Inspector Content
+local InspectorContent = Instance.new("ScrollingFrame")
+InspectorContent.Name = "Content"
+InspectorContent.Parent = InspectorPanel
+InspectorContent.BackgroundTransparency = 1
+InspectorContent.Position = UDim2.new(0, 0, 0, 80)
+InspectorContent.Size = UDim2.new(1, 0, 1, -90)
+InspectorContent.ScrollBarThickness = 2
+InspectorContent.ScrollBarImageColor3 = Trinity.Theme.Primary
+InspectorContent.CanvasSize = UDim2.new(0, 0, 0, 0)
+
+local InspectorLayout = Instance.new("UIListLayout")
+InspectorLayout.Parent = InspectorContent
+InspectorLayout.Padding = UDim.new(0, 12)
+InspectorLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+InspectorLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    InspectorContent.CanvasSize = UDim2.new(0, 0, 0, InspectorLayout.AbsoluteContentSize.Y + 20)
+end)
+
+-- ==========================================
+-- COMPONENT SYSTEM
+-- ==========================================
+
+-- Group Box (Modern Card)
+function Trinity.CreateGroupBox(title, column, height)
+    column = column or "left"
+    height = height or 200
     
-    SafeTween(MainFrame, {Size = targetSize}, 0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
-    UpdateToggleIcon()
+    local parent = column == "left" and LeftColumn or RightColumn
     
-    -- Close all categories when collapsing
-    if not isExpanded then
-        for _, cat in pairs(Categories) do
-            if cat.Expanded then
-                cat.Toggle()
-            end
-        end
-    end
+    local card = Instance.new("Frame")
+    card.Name = title .. "Card"
+    card.Parent = parent
+    card.BackgroundColor3 = Trinity.Theme.ContainerBg
+    card.BackgroundTransparency = 0.2
+    card.Size = UDim2.new(1, 0, 0, height)
+    
+    AddGlassEffects(card, 10)
+    
+    -- Header with accent line
+    local header = Instance.new("Frame")
+    header.Parent = card
+    header.BackgroundColor3 = Trinity.Theme.Primary
+    header.BorderSizePixel = 0
+    header.Position = UDim2.new(0, 0, 0, 0)
+    header.Size = UDim2.new(0, 4, 0, 40)
+    
+    local headerBg = Instance.new("Frame")
+    headerBg.Parent = card
+    headerBg.BackgroundColor3 = Trinity.Theme.ElevatedBg
+    headerBg.BackgroundTransparency = 0.5
+    headerBg.BorderSizePixel = 0
+    headerBg.Position = UDim2.new(0, 0, 0, 0)
+    headerBg.Size = UDim2.new(1, 0, 0, 40)
+    
+    local headerCorner = Instance.new("UICorner")
+    headerCorner.CornerRadius = UDim.new(0, 10)
+    headerCorner.Parent = headerBg
+    
+    -- Fix corner for accent line area
+    local mask = Instance.new("Frame")
+    mask.Parent = headerBg
+    mask.BackgroundColor3 = Trinity.Theme.ElevatedBg
+    mask.BorderSizePixel = 0
+    mask.Position = UDim2.new(0, 0, 0, 0)
+    mask.Size = UDim2.new(0, 4, 0, 40)
+    
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Parent = headerBg
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Position = UDim2.new(0, 20, 0, 0)
+    titleLabel.Size = UDim2.new(1, -40, 1, 0)
+    titleLabel.Font = Enum.Font.GothamBold
+    titleLabel.Text = title
+    titleLabel.TextColor3 = Trinity.Theme.TextPrimary
+    titleLabel.TextSize = 14
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    -- Content container
+    local content = Instance.new("Frame")
+    content.Name = "Content"
+    content.Parent = card
+    content.BackgroundTransparency = 1
+    content.Position = UDim2.new(0, 15, 0, 50)
+    content.Size = UDim2.new(1, -30, 1, -60)
+    
+    -- Auto-height adjustment
+    local contentLayout = Instance.new("UIListLayout")
+    contentLayout.Parent = content
+    contentLayout.Padding = UDim.new(0, 10)
+    contentLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    
+    contentLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        local newHeight = contentLayout.AbsoluteContentSize.Y + 70
+        card.Size = UDim2.new(1, 0, 0, newHeight)
+    end)
+    
+    return content
 end
 
-ToggleBtn.MouseButton1Click:Connect(ToggleUI)
-Header.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 and input.Position.Y < Header.AbsolutePosition.Y + 35 then
-        ToggleUI()
-    end
-end)
-
--- Make Draggable
-local dragging, dragInput, dragStart, startPos
-Header.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        dragStart = input.Position
-        startPos = MainFrame.Position
-        
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-            end
-        end)
-    end
-end)
-
-Header.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-        dragInput = input
-    end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-    if input == dragInput and dragging then
-        local delta = input.Position - dragStart
-        SafeTween(MainFrame, {
-            Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-        }, 0.1)
-    end
-end)
-
--- CATEGORY SYSTEM (Vape V4 Style)
-function Modular.AddCategory(name)
-    local category = {}
-    category.Expanded = false
-    category.Modules = {}
-    
-    -- Category Button
-    local CatBtn = Instance.new("TextButton")
-    CatBtn.Parent = CategoriesContainer
-    CatBtn.BackgroundColor3 = Modular.Theme.Background
-    CatBtn.Size = UDim2.new(1, 0, 0, 35)
-    CatBtn.Text = ""
-    CatBtn.BorderSizePixel = 0
-    CatBtn.AutoButtonColor = false
-    
-    local CatLabel = Instance.new("TextLabel")
-    CatLabel.Parent = CatBtn
-    CatLabel.BackgroundTransparency = 1
-    CatLabel.Position = UDim2.new(0, 10, 0, 0)
-    CatLabel.Size = UDim2.new(1, -40, 1, 0)
-    CatLabel.Font = Enum.Font.GothamMedium
-    CatLabel.Text = name
-    CatLabel.TextColor3 = Modular.Theme.TextDim
-    CatLabel.TextSize = 13
-    CatLabel.TextXAlignment = Enum.TextXAlignment.Left
-    
-    local ArrowLabel = Instance.new("TextLabel")
-    ArrowLabel.Parent = CatBtn
-    ArrowLabel.BackgroundTransparency = 1
-    ArrowLabel.Position = UDim2.new(1, -25, 0, 0)
-    ArrowLabel.Size = UDim2.new(0, 25, 1, 0)
-    ArrowLabel.Font = Enum.Font.GothamMedium
-    ArrowLabel.Text = "›"
-    ArrowLabel.TextColor3 = Modular.Theme.TextDim
-    ArrowLabel.TextSize = 16
-    
-    -- Dropdown Panel (appears to the right)
-    local DropdownPanel = Instance.new("Frame")
-    DropdownPanel.Name = name .. "Panel"
-    DropdownPanel.Parent = ScreenGui
-    DropdownPanel.BackgroundColor3 = Modular.Theme.Background
-    DropdownPanel.Position = UDim2.new(0, MainFrame.AbsolutePosition.X + 225, 0, MainFrame.AbsolutePosition.Y + CatBtn.AbsolutePosition.Y)
-    DropdownPanel.Size = UDim2.new(0, 200, 0, 0)
-    DropdownPanel.BorderSizePixel = 0
-    DropdownPanel.ClipsDescendants = true
-    DropdownPanel.Visible = false
-    DropdownPanel.ZIndex = 10
-    
-    local PanelCorner = Instance.new("UICorner")
-    PanelCorner.CornerRadius = UDim.new(0, 4)
-    PanelCorner.Parent = DropdownPanel
-    
-    local PanelStroke = Instance.new("UIStroke")
-    PanelStroke.Color = Modular.Theme.Stroke
-    PanelStroke.Thickness = 1
-    PanelStroke.Parent = DropdownPanel
-    
-    local PanelLayout = Instance.new("UIListLayout")
-    PanelLayout.Parent = DropdownPanel
-    PanelLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    PanelLayout.Padding = UDim.new(0, 2)
-    
-    local PanelPadding = Instance.new("UIPadding")
-    PanelPadding.Parent = DropdownPanel
-    PanelPadding.PaddingTop = UDim.new(0, 5)
-    PanelPadding.PaddingBottom = UDim.new(0, 5)
-    
-    -- Update panel position when main moves
-    MainFrame:GetPropertyChangedSignal("AbsolutePosition"):Connect(function()
-        if category.Expanded then
-            DropdownPanel.Position = UDim2.new(0, MainFrame.AbsolutePosition.X + 225, 0, MainFrame.AbsolutePosition.Y + CatBtn.LayoutOrder * 35 + 35)
-        end
-    end)
-    
-    function category.Toggle()
-        category.Expanded = not category.Expanded
-        
-        if category.Expanded then
-            -- Close other categories
-            for _, cat in pairs(Categories) do
-                if cat ~= category and cat.Expanded then
-                    cat.Toggle()
-                end
-            end
-            
-            CatBtn.BackgroundColor3 = Modular.Theme.Selected
-            CatLabel.TextColor3 = Modular.Theme.TextMain
-            ArrowLabel.TextColor3 = Modular.Theme.Accent
-            SafeTween(ArrowLabel, {Rotation = 90}, 0.2)
-            
-            DropdownPanel.Visible = true
-            local contentHeight = PanelLayout.AbsoluteContentSize.Y + 10
-            SafeTween(DropdownPanel, {Size = UDim2.new(0, 200, 0, contentHeight)}, 0.2)
-            DropdownPanel.Position = UDim2.new(0, MainFrame.AbsolutePosition.X + 225, 0, MainFrame.AbsolutePosition.Y + CatBtn.AbsolutePosition.Y)
-        else
-            CatBtn.BackgroundColor3 = Modular.Theme.Background
-            CatLabel.TextColor3 = Modular.Theme.TextDim
-            ArrowLabel.TextColor3 = Modular.Theme.TextDim
-            SafeTween(ArrowLabel, {Rotation = 0}, 0.2)
-            
-            SafeTween(DropdownPanel, {Size = UDim2.new(0, 200, 0, 0)}, 0.2)
-            task.delay(0.2, function()
-                if not category.Expanded then
-                    DropdownPanel.Visible = false
-                end
-            end)
-        end
-    end
-    
-    CatBtn.MouseButton1Click:Connect(category.Toggle)
-    
-    CatBtn.MouseEnter:Connect(function()
-        if not category.Expanded then
-            SafeTween(CatBtn, {BackgroundColor3 = Modular.Theme.Hover}, 0.1)
-        end
-    end)
-    
-    CatBtn.MouseLeave:Connect(function()
-        if not category.Expanded then
-            SafeTween(CatBtn, {BackgroundColor3 = Modular.Theme.Background}, 0.1)
-        end
-    end)
-    
-    -- Container for modules
-    category.Container = DropdownPanel
-    category.Layout = PanelLayout
-    
-    Categories[name] = category
-    return category
-end
-
--- COMPONENT FUNCTIONS (Adapted for Dropdown Style)
-
-function Modular.AddToggle(category, name, default, callback)
+-- Modern Toggle Switch
+function Trinity.AddToggle(parent, text, default, callback)
     local api = {}
     local state = default or false
     local safeCallback = callback or function() end
     
-    local container = Instance.new("TextButton")
-    container.Parent = category.Container
+    local container = Instance.new("Frame")
+    container.Parent = parent
     container.BackgroundTransparency = 1
-    container.Size = UDim2.new(1, 0, 0, 28)
-    container.Text = ""
-    container.AutoButtonColor = false
+    container.Size = UDim2.new(1, 0, 0, 36)
     
     local label = Instance.new("TextLabel")
     label.Parent = container
     label.BackgroundTransparency = 1
-    label.Position = UDim2.new(0, 10, 0, 0)
-    label.Size = UDim2.new(1, -35, 1, 0)
+    label.Position = UDim2.new(0, 0, 0, 0)
+    label.Size = UDim2.new(1, -60, 1, 0)
     label.Font = Enum.Font.GothamMedium
-    label.Text = name
-    label.TextColor3 = state and Modular.Theme.TextMain or Modular.Theme.TextDim
-    label.TextSize = 12
+    label.Text = text
+    label.TextColor3 = state and Trinity.Theme.TextPrimary or Trinity.Theme.TextSecondary
+    label.TextSize = 13
     label.TextXAlignment = Enum.TextXAlignment.Left
     
-    local indicator = Instance.new("Frame")
-    indicator.Parent = container
-    indicator.Size = UDim2.new(0, 4, 0, 4)
-    indicator.Position = UDim2.new(1, -15, 0.5, -2)
-    indicator.BackgroundColor3 = state and Modular.Theme.Accent or Modular.Theme.Stroke
-    indicator.BorderSizePixel = 0
+    -- Switch background
+    local switchBg = Instance.new("TextButton")
+    switchBg.Parent = container
+    switchBg.BackgroundColor3 = state and Trinity.Theme.Primary or Trinity.Theme.ElevatedBg
+    switchBg.Position = UDim2.new(1, -50, 0.5, -12)
+    switchBg.Size = UDim2.new(0, 50, 0, 24)
+    switchBg.Text = ""
+    switchBg.AutoButtonColor = false
     
-    local indicatorCorner = Instance.new("UICorner")
-    indicatorCorner.CornerRadius = UDim.new(1, 0)
-    indicatorCorner.Parent = indicator
+    local switchCorner = Instance.new("UICorner")
+    switchCorner.CornerRadius = UDim.new(1, 0)
+    switchCorner.Parent = switchBg
     
-    if state then
-        TrackAccentElement(indicator, "Frame")
+    -- Switch knob
+    local knob = Instance.new("Frame")
+    knob.Parent = switchBg
+    knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    knob.Position = state and UDim2.new(1, -22, 0.5, -10) or UDim2.new(0, 2, 0.5, -10)
+    knob.Size = UDim2.new(0, 20, 0, 20)
+    
+    local knobCorner = Instance.new("UICorner")
+    knobCorner.CornerRadius = UDim.new(1, 0)
+    knobCorner.Parent = knob
+    
+    -- Glow effect when on
+    local glow = Instance.new("ImageLabel")
+    glow.Parent = switchBg
+    glow.AnchorPoint = Vector2.new(0.5, 0.5)
+    glow.BackgroundTransparency = 1
+    glow.Position = UDim2.new(0.5, 0, 0.5, 0)
+    glow.Size = UDim2.new(1.5, 0, 2, 0)
+    glow.Image = "rbxassetid://131604521937018"
+    glow.ImageColor3 = Trinity.Theme.Primary
+    glow.ImageTransparency = state and 0.7 or 1
+    glow.ZIndex = 0
+    
+    local function update()
+        SafeTween(switchBg, {BackgroundColor3 = state and Trinity.Theme.Primary or Trinity.Theme.ElevatedBg}, 0.2)
+        SafeTween(knob, {Position = state and UDim2.new(1, -22, 0.5, -10) or UDim2.new(0, 2, 0.5, -10)}, 0.2)
+        SafeTween(glow, {ImageTransparency = state and 0.7 or 1}, 0.2)
+        SafeTween(label, {TextColor3 = state and Trinity.Theme.TextPrimary or Trinity.Theme.TextSecondary}, 0.2)
     end
+    
+    switchBg.MouseButton1Click:Connect(function()
+        api:Set(not state)
+    end)
     
     function api:Set(value)
         value = not not value
         if state == value then return end
         state = value
-        label.TextColor3 = state and Modular.Theme.TextMain or Modular.Theme.TextDim
-        indicator.BackgroundColor3 = state and Modular.Theme.Accent or Modular.Theme.Stroke
-        if state then
-            TrackAccentElement(indicator, "Frame")
-        end
+        update()
         safeCallback(state)
     end
     
@@ -568,634 +697,816 @@ function Modular.AddToggle(category, name, default, callback)
         return state
     end
     
-    container.MouseButton1Click:Connect(function()
-        api:Set(not state)
-    end)
-    
-    container.MouseEnter:Connect(function()
-        if not state then
-            SafeTween(label, {TextColor3 = Color3.fromRGB(200, 200, 200)}, 0.1)
-        end
-    end)
-    
-    container.MouseLeave:Connect(function()
-        if not state then
-            SafeTween(label, {TextColor3 = Modular.Theme.TextDim}, 0.1)
-        end
-    end)
-    
     return api
 end
 
-function Modular.AddSlider(category, name, min, max, default, decimals, suffix, callback)
+-- Modern Slider
+function Trinity.AddSlider(parent, text, min, max, default, decimals, suffix, callback)
     local api = {}
-    local safeCallback = callback or function() end
-    suffix = suffix or ""
     decimals = decimals or 0
+    suffix = suffix or ""
     local value = default or min
     
     local container = Instance.new("Frame")
-    container.Parent = category.Container
+    container.Parent = parent
     container.BackgroundTransparency = 1
-    container.Size = UDim2.new(1, 0, 0, 45)
+    container.Size = UDim2.new(1, 0, 0, 50)
     
     local label = Instance.new("TextLabel")
     label.Parent = container
     label.BackgroundTransparency = 1
-    label.Position = UDim2.new(0, 10, 0, 0)
+    label.Position = UDim2.new(0, 0, 0, 0)
     label.Size = UDim2.new(0.7, 0, 0, 20)
     label.Font = Enum.Font.GothamMedium
-    label.Text = name
-    label.TextColor3 = Modular.Theme.TextDim
-    label.TextSize = 12
+    label.Text = text
+    label.TextColor3 = Trinity.Theme.TextSecondary
+    label.TextSize = 13
     label.TextXAlignment = Enum.TextXAlignment.Left
     
-    local valLabel = Instance.new("TextLabel")
-    valLabel.Parent = container
-    valLabel.BackgroundTransparency = 1
-    valLabel.Position = UDim2.new(0.7, 0, 0, 0)
-    valLabel.Size = UDim2.new(0.3, -10, 0, 20)
-    valLabel.Font = Enum.Font.GothamMedium
-    valLabel.Text = tostring(value) .. suffix
-    valLabel.TextColor3 = Modular.Theme.TextMain
-    valLabel.TextSize = 11
-    valLabel.TextXAlignment = Enum.TextXAlignment.Right
+    local valueLabel = Instance.new("TextLabel")
+    valueLabel.Parent = container
+    valueLabel.BackgroundTransparency = 1
+    valueLabel.Position = UDim2.new(0.7, 0, 0, 0)
+    valueLabel.Size = UDim2.new(0.3, 0, 0, 20)
+    valueLabel.Font = Enum.Font.GothamBold
+    valueLabel.Text = tostring(value) .. suffix
+    valueLabel.TextColor3 = Trinity.Theme.Primary
+    valueLabel.TextSize = 13
+    valueLabel.TextXAlignment = Enum.TextXAlignment.Right
     
-    local barBg = Instance.new("Frame")
-    barBg.Parent = container
-    barBg.BackgroundColor3 = Modular.Theme.DarkContainer
-    barBg.Position = UDim2.new(0, 10, 0, 28)
-    barBg.Size = UDim2.new(1, -20, 0, 4)
-    barBg.BorderSizePixel = 0
+    -- Track
+    local track = Instance.new("TextButton")
+    track.Parent = container
+    track.BackgroundColor3 = Trinity.Theme.ElevatedBg
+    track.Position = UDim2.new(0, 0, 0, 32)
+    track.Size = UDim2.new(1, 0, 0, 6)
+    track.Text = ""
+    track.AutoButtonColor = false
     
-    local barBgCorner = Instance.new("UICorner")
-    barBgCorner.CornerRadius = UDim.new(0, 2)
-    barBgCorner.Parent = barBg
+    local trackCorner = Instance.new("UICorner")
+    trackCorner.CornerRadius = UDim.new(1, 0)
+    trackCorner.Parent = track
     
+    -- Fill
     local fill = Instance.new("Frame")
-    fill.Parent = barBg
-    fill.BackgroundColor3 = Modular.Theme.Accent
-    fill.Size = UDim2.new(0, 0, 1, 0)
+    fill.Parent = track
+    fill.BackgroundColor3 = Trinity.Theme.Primary
     fill.BorderSizePixel = 0
+    fill.Size = UDim2.new((value - min) / (max - min), 0, 1, 0)
     
     local fillCorner = Instance.new("UICorner")
-    fillCorner.CornerRadius = UDim.new(0, 2)
+    fillCorner.CornerRadius = UDim.new(1, 0)
     fillCorner.Parent = fill
     
-    TrackAccentElement(fill, "Frame")
-    
+    -- Knob
     local knob = Instance.new("Frame")
     knob.Parent = fill
+    knob.AnchorPoint = Vector2.new(0.5, 0.5)
     knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    knob.Size = UDim2.new(0, 8, 0, 8)
-    knob.Position = UDim2.new(1, -4, 0.5, -4)
-    knob.BorderSizePixel = 0
+    knob.Position = UDim2.new(1, 0, 0.5, 0)
+    knob.Size = UDim2.new(0, 14, 0, 14)
     
     local knobCorner = Instance.new("UICorner")
     knobCorner.CornerRadius = UDim.new(1, 0)
     knobCorner.Parent = knob
     
+    -- Glow
+    local knobGlow = Instance.new("ImageLabel")
+    knobGlow.Parent = knob
+    knobGlow.AnchorPoint = Vector2.new(0.5, 0.5)
+    knobGlow.BackgroundTransparency = 1
+    knobGlow.Position = UDim2.new(0.5, 0, 0.5, 0)
+    knobGlow.Size = UDim2.new(2, 0, 2, 0)
+    knobGlow.Image = "rbxassetid://131604521937018"
+    knobGlow.ImageColor3 = Trinity.Theme.Primary
+    knobGlow.ImageTransparency = 0.5
+    
     local function round(v)
-        local power = 10 ^ decimals
-        return math.floor(v * power + 0.5) / power
+        local p = 10 ^ decimals
+        return math.floor(v * p + 0.5) / p
     end
     
     local function updateVisual()
-        local percent = math.clamp((value - min) / (max - min), 0, 1)
-        fill.Size = UDim2.new(percent, 0, 1, 0)
-        valLabel.Text = tostring(value) .. suffix
-    end
-    
-    function api:Set(v)
-        v = tonumber(v) or value
-        v = math.clamp(round(v), min, max)
-        if v == value then return end
-        value = v
-        updateVisual()
-        safeCallback(value)
-    end
-    
-    function api:Get()
-        return value
+        local pct = math.clamp((value - min) / (max - min), 0, 1)
+        fill.Size = UDim2.new(pct, 0, 1, 0)
+        valueLabel.Text = tostring(round(value)) .. suffix
     end
     
     local dragging = false
     
-    barBg.InputBegan:Connect(function(input)
+    local function updateFromInput(input)
+        local pos = math.clamp((input.Position.X - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
+        local raw = min + ((max - min) * pos)
+        api:Set(raw)
+    end
+    
+    track.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             dragging = true
-            local pos = math.clamp((input.Position.X - barBg.AbsolutePosition.X) / barBg.AbsoluteSize.X, 0, 1)
-            api:Set(min + ((max - min) * pos))
+            updateFromInput(input)
+            SafeTween(knob, {Size = UDim2.new(0, 18, 0, 18)}, 0.1)
         end
     end)
     
     UserInputService.InputChanged:Connect(function(input)
         if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-            local pos = math.clamp((input.Position.X - barBg.AbsolutePosition.X) / barBg.AbsoluteSize.X, 0, 1)
-            api:Set(min + ((max - min) * pos))
+            updateFromInput(input)
         end
     end)
     
     UserInputService.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             dragging = false
+            SafeTween(knob, {Size = UDim2.new(0, 14, 0, 14)}, 0.1)
         end
     end)
+    
+    function api:Set(v)
+        v = tonumber(v) or value
+        v = math.clamp(v, min, max)
+        v = round(v)
+        if v == value then return end
+        value = v
+        updateVisual()
+        if callback then callback(value) end
+    end
+    
+    function api:Get()
+        return value
+    end
     
     updateVisual()
     return api
 end
 
-function Modular.AddKeybind(category, name, defaultKey, callback)
-    local api = {}
-    local currentKey = defaultKey or Enum.KeyCode.Unknown
-    local listening = false
-    local safeCallback = callback or function() end
+-- Modern Button
+function Trinity.AddButton(parent, text, style, callback)
+    style = style or "primary" -- primary, secondary, danger, ghost
     
-    local container = Instance.new("TextButton")
-    container.Parent = category.Container
+    local colors = {
+        primary = Trinity.Theme.Primary,
+        secondary = Trinity.Theme.Secondary,
+        danger = Trinity.Theme.Danger,
+        ghost = Trinity.Theme.ElevatedBg
+    }
+    
+    local color = colors[style] or colors.primary
+    local isGhost = style == "ghost"
+    
+    local btn = Instance.new("TextButton")
+    btn.Parent = parent
+    btn.BackgroundColor3 = color
+    btn.BackgroundTransparency = isGhost and 0.5 or 0
+    btn.Size = UDim2.new(1, 0, 0, 36)
+    btn.Text = text
+    btn.Font = Enum.Font.GothamBold
+    btn.TextColor3 = isGhost and Trinity.Theme.TextSecondary or Color3.fromRGB(255, 255, 255)
+    btn.TextSize = 13
+    btn.AutoButtonColor = false
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = btn
+    
+    -- Hover effects
+    local originalColor = color
+    
+    btn.MouseEnter:Connect(function()
+        SafeTween(btn, {BackgroundColor3 = originalColor:Lerp(Color3.fromRGB(255, 255, 255), 0.1)}, 0.2)
+    end)
+    
+    btn.MouseLeave:Connect(function()
+        SafeTween(btn, {BackgroundColor3 = originalColor}, 0.2)
+    end)
+    
+    btn.MouseButton1Down:Connect(function()
+        SafeTween(btn, {Size = UDim2.new(0.98, 0, 0, 34), Position = UDim2.new(0.01, 0, 0, 1)}, 0.1)
+    end)
+    
+    btn.MouseButton1Up:Connect(function()
+        SafeTween(btn, {Size = UDim2.new(1, 0, 0, 36), Position = UDim2.new(0, 0, 0, 0)}, 0.1)
+    end)
+    
+    btn.MouseButton1Click:Connect(function()
+        if callback then callback() end
+    end)
+    
+    return btn
+end
+
+-- Modern Dropdown
+function Trinity.AddDropdown(parent, text, options, default, callback)
+    local api = {}
+    local selected = default or options[1]
+    local isOpen = false
+    
+    local container = Instance.new("Frame")
+    container.Parent = parent
     container.BackgroundTransparency = 1
-    container.Size = UDim2.new(1, 0, 0, 28)
-    container.Text = ""
-    container.AutoButtonColor = false
+    container.Size = UDim2.new(1, 0, 0, 70)
+    container.ZIndex = 10
     
     local label = Instance.new("TextLabel")
     label.Parent = container
     label.BackgroundTransparency = 1
-    label.Position = UDim2.new(0, 10, 0, 0)
-    label.Size = UDim2.new(1, -60, 1, 0)
+    label.Position = UDim2.new(0, 0, 0, 0)
+    label.Size = UDim2.new(1, 0, 0, 20)
     label.Font = Enum.Font.GothamMedium
-    label.Text = name
-    label.TextColor3 = Modular.Theme.TextDim
-    label.TextSize = 12
+    label.Text = text
+    label.TextColor3 = Trinity.Theme.TextSecondary
+    label.TextSize = 13
     label.TextXAlignment = Enum.TextXAlignment.Left
     
-    local keyBox = Instance.new("Frame")
-    keyBox.Parent = container
-    keyBox.BackgroundColor3 = Modular.Theme.DarkContainer
-    keyBox.Position = UDim2.new(1, -50, 0.5, -9)
-    keyBox.Size = UDim2.new(0, 45, 0, 18)
-    keyBox.BorderSizePixel = 0
+    -- Main button
+    local btn = Instance.new("TextButton")
+    btn.Parent = container
+    btn.BackgroundColor3 = Trinity.Theme.ElevatedBg
+    btn.Position = UDim2.new(0, 0, 0, 25)
+    btn.Size = UDim2.new(1, 0, 0, 36)
+    btn.Text = "  " .. selected
+    btn.Font = Enum.Font.GothamMedium
+    btn.TextColor3 = Trinity.Theme.TextPrimary
+    btn.TextSize = 13
+    btn.TextXAlignment = Enum.TextXAlignment.Left
+    btn.AutoButtonColor = false
     
-    local keyBoxCorner = Instance.new("UICorner")
-    keyBoxCorner.CornerRadius = UDim.new(0, 3)
-    keyBoxCorner.Parent = keyBox
+    AddGlassEffects(btn, 8)
     
-    local keyLabel = Instance.new("TextLabel")
-    keyLabel.Parent = keyBox
-    keyLabel.BackgroundTransparency = 1
-    keyLabel.Size = UDim2.new(1, 0, 1, 0)
-    keyLabel.Font = Enum.Font.GothamMedium
-    keyLabel.Text = currentKey.Name ~= "Unknown" and currentKey.Name or "None"
-    keyLabel.TextColor3 = Modular.Theme.TextMain
-    keyLabel.TextSize = 10
+    -- Chevron icon
+    local chevron = Instance.new("ImageLabel")
+    chevron.Parent = btn
+    chevron.AnchorPoint = Vector2.new(1, 0.5)
+    chevron.BackgroundTransparency = 1
+    chevron.Position = UDim2.new(1, -12, 0.5, 0)
+    chevron.Size = UDim2.fromOffset(16, 16)
+    chevron.Image = "rbxassetid://7733959095"
+    chevron.ImageColor3 = Trinity.Theme.TextMuted
+    chevron.Rotation = 0
     
-    function api:Set(key)
-        if typeof(key) == "EnumItem" then
-            currentKey = key
-            keyLabel.Text = currentKey.Name ~= "Unknown" and currentKey.Name or "None"
+    -- Dropdown list
+    local list = Instance.new("Frame")
+    list.Parent = container
+    list.BackgroundColor3 = Trinity.Theme.ElevatedBg
+    list.Position = UDim2.new(0, 0, 0, 65)
+    list.Size = UDim2.new(1, 0, 0, 0)
+    list.ClipsDescendants = true
+    list.Visible = false
+    list.ZIndex = 20
+    
+    AddGlassEffects(list, 8)
+    
+    local listLayout = Instance.new("UIListLayout")
+    listLayout.Parent = list
+    listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    
+    local function toggle()
+        isOpen = not isOpen
+        if isOpen then
+            list.Visible = true
+            SafeTween(list, {Size = UDim2.new(1, 0, 0, math.min(#options * 32, 160))}, 0.25)
+            SafeTween(chevron, {Rotation = 180}, 0.25)
+        else
+            SafeTween(list, {Size = UDim2.new(1, 0, 0, 0)}, 0.25)
+            SafeTween(chevron, {Rotation = 0}, 0.25)
+            task.delay(0.25, function()
+                if not isOpen then list.Visible = false end
+            end)
+        end
+    end
+    
+    btn.MouseButton1Click:Connect(toggle)
+    
+    -- Options
+    for _, opt in ipairs(options) do
+        local optBtn = Instance.new("TextButton")
+        optBtn.Parent = list
+        optBtn.BackgroundTransparency = 1
+        optBtn.Size = UDim2.new(1, 0, 0, 32)
+        optBtn.Text = "  " .. opt
+        optBtn.Font = Enum.Font.GothamMedium
+        optBtn.TextColor3 = (opt == selected) and Trinity.Theme.Primary or Trinity.Theme.TextSecondary
+        optBtn.TextSize = 13
+        optBtn.TextXAlignment = Enum.TextXAlignment.Left
+        optBtn.AutoButtonColor = false
+        
+        optBtn.MouseEnter:Connect(function()
+            SafeTween(optBtn, {BackgroundTransparency = 0.9}, 0.1)
+        end)
+        
+        optBtn.MouseLeave:Connect(function()
+            SafeTween(optBtn, {BackgroundTransparency = 1}, 0.1)
+        end)
+        
+        optBtn.MouseButton1Click:Connect(function()
+            selected = opt
+            btn.Text = "  " .. selected
+            toggle()
+            if callback then callback(selected) end
+            
+            -- Update colors
+            for _, child in ipairs(list:GetChildren()) do
+                if child:IsA("TextButton") then
+                    child.TextColor3 = (child.Text:sub(3) == selected) and Trinity.Theme.Primary or Trinity.Theme.TextSecondary
+                end
+            end
+        end)
+    end
+    
+    function api:Set(value)
+        if table.find(options, value) then
+            selected = value
+            btn.Text = "  " .. selected
         end
     end
     
     function api:Get()
-        return currentKey
+        return selected
     end
     
-    container.MouseButton1Click:Connect(function()
+    return api
+end
+
+-- Keybind Component
+function Trinity.AddKeybind(parent, text, defaultKey, callback)
+    local api = {}
+    local currentKey = defaultKey or Enum.KeyCode.Unknown
+    local listening = false
+    
+    local container = Instance.new("Frame")
+    container.Parent = parent
+    container.BackgroundTransparency = 1
+    container.Size = UDim2.new(1, 0, 0, 36)
+    
+    local label = Instance.new("TextLabel")
+    label.Parent = container
+    label.BackgroundTransparency = 1
+    label.Position = UDim2.new(0, 0, 0, 0)
+    label.Size = UDim2.new(1, -70, 1, 0)
+    label.Font = Enum.Font.GothamMedium
+    label.Text = text
+    label.TextColor3 = Trinity.Theme.TextSecondary
+    label.TextSize = 13
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    
+    local keyBtn = Instance.new("TextButton")
+    keyBtn.Parent = container
+    keyBtn.BackgroundColor3 = Trinity.Theme.ElevatedBg
+    keyBtn.Position = UDim2.new(1, -60, 0.5, -14)
+    keyBtn.Size = UDim2.new(0, 60, 0, 28)
+    keyBtn.Text = currentKey.Name ~= "Unknown" and currentKey.Name or "None"
+    keyBtn.Font = Enum.Font.GothamBold
+    keyBtn.TextColor3 = Trinity.Theme.Primary
+    keyBtn.TextSize = 11
+    keyBtn.AutoButtonColor = false
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = keyBtn
+    
+    local stroke = Instance.new("UIStroke")
+    stroke.Parent = keyBtn
+    stroke.Color = Trinity.Theme.Primary
+    stroke.Thickness = 1.5
+    stroke.Transparency = 0.8
+    
+    local function updateVisual()
+        keyBtn.Text = currentKey.Name ~= "Unknown" and currentKey.Name or "None"
+    end
+    
+    keyBtn.MouseButton1Click:Connect(function()
         if listening then return end
         listening = true
-        keyLabel.Text = "..."
+        keyBtn.Text = "..."
+        
+        SafeTween(stroke, {Transparency = 0}, 0.2)
         
         local conn
         conn = UserInputService.InputBegan:Connect(function(input, gpe)
             if gpe then return end
             if input.KeyCode ~= Enum.KeyCode.Unknown then
-                api:Set(input.KeyCode)
-                safeCallback(input.KeyCode)
+                currentKey = input.KeyCode
+                updateVisual()
+                SafeTween(stroke, {Transparency = 0.8}, 0.2)
             end
             listening = false
             conn:Disconnect()
         end)
     end)
     
+    UserInputService.InputBegan:Connect(function(input, gpe)
+        if gpe or listening then return end
+        if input.KeyCode == currentKey then
+            SafeTween(keyBtn, {BackgroundColor3 = Trinity.Theme.Primary, TextColor3 = Color3.fromRGB(255, 255, 255)}, 0.1)
+            task.delay(0.15, function()
+                SafeTween(keyBtn, {BackgroundColor3 = Trinity.Theme.ElevatedBg, TextColor3 = Trinity.Theme.Primary}, 0.1)
+            end)
+            if callback then callback() end
+        end
+    end)
+    
+    function api:Set(key)
+        currentKey = key
+        updateVisual()
+    end
+    
+    function api:Get()
+        return currentKey
+    end
+    
     return api
 end
 
-function Modular.AddDropdown(category, name, options, default, callback, config)
-    local safeCallback = callback or function() end
-    config = config or {}
-    local isMulti = config.Multi == true
-    local selected = isMulti and {} or (default or options[1])
+-- ==========================================
+-- TAB SYSTEM
+-- ==========================================
+
+function Trinity.AddTab(name, icon, section)
+    section = section or "Main"
     
-    if isMulti and default then
-        for _, v in ipairs(default) do
-            selected[v] = true
-        end
+    -- Create section header if needed
+    local existingSection = NavContainer:FindFirstChild(section .. "Section")
+    if not existingSection then
+        local sec = CreateSection(section)
+        sec.Name = section .. "Section"
+        sec.Parent = NavContainer
     end
     
-    local container = Instance.new("Frame")
-    container.Parent = category.Container
-    container.BackgroundTransparency = 1
-    container.Size = UDim2.new(1, 0, 0, 50)
+    -- Tab button
+    local tabBtn = Instance.new("TextButton")
+    tabBtn.Name = name .. "Tab"
+    tabBtn.Parent = NavContainer
+    tabBtn.BackgroundColor3 = Trinity.Theme.Primary
+    tabBtn.BackgroundTransparency = 1
+    tabBtn.Size = UDim2.new(1, -30, 0, 40)
+    tabBtn.Position = UDim2.new(0, 15, 0, 0)
+    tabBtn.Text = ""
+    tabBtn.AutoButtonColor = false
     
-    local label = Instance.new("TextLabel")
-    label.Parent = container
-    label.BackgroundTransparency = 1
-    label.Position = UDim2.new(0, 10, 0, 0)
-    label.Size = UDim2.new(1, 0, 0, 20)
-    label.Font = Enum.Font.GothamMedium
-    label.Text = name
-    label.TextColor3 = Modular.Theme.TextDim
-    label.TextSize = 12
-    label.TextXAlignment = Enum.TextXAlignment.Left
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = tabBtn
     
-    local btn = Instance.new("TextButton")
-    btn.Parent = container
-    btn.BackgroundColor3 = Modular.Theme.DarkContainer
-    btn.Position = UDim2.new(0, 10, 0, 22)
-    btn.Size = UDim2.new(1, -20, 0, 25)
-    btn.Text = ""
-    btn.AutoButtonColor = false
+    -- Icon
+    local iconLabel = CreateIcon(icon or "menu", UDim2.fromOffset(20, 20), Trinity.Theme.TextSecondary)
+    iconLabel.Parent = tabBtn
+    iconLabel.Position = UDim2.new(0, 15, 0.5, -10)
+    iconLabel.Name = "Icon"
     
-    local btnCorner = Instance.new("UICorner")
-    btnCorner.CornerRadius = UDim.new(0, 3)
-    btnCorner.Parent = btn
+    -- Text
+    local textLabel = Instance.new("TextLabel")
+    textLabel.Parent = tabBtn
+    textLabel.BackgroundTransparency = 1
+    textLabel.Position = UDim2.new(0, 45, 0, 0)
+    textLabel.Size = UDim2.new(1, -60, 1, 0)
+    textLabel.Font = Enum.Font.GothamBold
+    textLabel.Text = name
+    textLabel.TextColor3 = Trinity.Theme.TextSecondary
+    textLabel.TextSize = 14
+    textLabel.TextXAlignment = Enum.TextXAlignment.Left
     
-    local btnStroke = Instance.new("UIStroke")
-    btnStroke.Color = Modular.Theme.Stroke
-    btnStroke.Thickness = 1
-    btnStroke.Parent = btn
+    -- Active indicator
+    local indicator = Instance.new("Frame")
+    indicator.Parent = tabBtn
+    indicator.BackgroundColor3 = Trinity.Theme.Primary
+    indicator.BorderSizePixel = 0
+    indicator.Position = UDim2.new(0, 0, 0.5, -12)
+    indicator.Size = UDim2.new(0, 3, 0, 24)
+    indicator.Visible = false
     
-    local btnLabel = Instance.new("TextLabel")
-    btnLabel.Parent = btn
-    btnLabel.BackgroundTransparency = 1
-    btnLabel.Position = UDim2.new(0, 8, 0, 0)
-    btnLabel.Size = UDim2.new(1, -25, 1, 0)
-    btnLabel.Font = Enum.Font.GothamMedium
-    btnLabel.Text = isMulti and "None" or tostring(selected)
-    btnLabel.TextColor3 = Modular.Theme.TextMain
-    btnLabel.TextSize = 11
-    btnLabel.TextXAlignment = Enum.TextXAlignment.Left
-    btnLabel.TextTruncate = Enum.TextTruncate.AtEnd
+    local indCorner = Instance.new("UICorner")
+    indCorner.CornerRadius = UDim.new(0, 2)
+    indCorner.Parent = indicator
     
-    local arrow = Instance.new("TextLabel")
-    arrow.Parent = btn
-    arrow.BackgroundTransparency = 1
-    arrow.Position = UDim2.new(1, -20, 0, 0)
-    arrow.Size = UDim2.new(0, 20, 1, 0)
-    arrow.Font = Enum.Font.GothamMedium
-    arrow.Text = "▼"
-    arrow.TextColor3 = Modular.Theme.TextDim
-    arrow.TextSize = 10
+    -- Content page
+    local page = Instance.new("Frame")
+    page.Name = name .. "Page"
+    page.Parent = ContentArea
+    page.BackgroundTransparency = 1
+    page.Size = UDim2.new(1, 0, 1, 0)
+    page.Visible = false
     
-    local list = Instance.new("Frame")
-    list.Parent = category.Container
-    list.BackgroundColor3 = Modular.Theme.DarkContainer
-    list.Position = UDim2.new(0, 10, 0, 48)
-    list.Size = UDim2.new(1, -20, 0, 0)
-    list.BorderSizePixel = 0
-    list.ClipsDescendants = true
-    list.Visible = false
-    list.ZIndex = 20
+    -- Store tab data
+    Trinity.State.Tabs[name] = {
+        Button = tabBtn,
+        Page = page,
+        Indicator = indicator,
+        Icon = iconLabel,
+        Label = textLabel
+    }
     
-    local listCorner = Instance.new("UICorner")
-    listCorner.CornerRadius = UDim.new(0, 3)
-    listCorner.Parent = list
+    -- Click handler
+    tabBtn.MouseButton1Click:Connect(function()
+        Trinity.SwitchTab(name)
+    end)
     
-    local listStroke = Instance.new("UIStroke")
-    listStroke.Color = Modular.Theme.Stroke
-    listStroke.Thickness = 1
-    listStroke.Parent = list
-    
-    local listLayout = Instance.new("UIListLayout")
-    listLayout.Parent = list
-    listLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    
-    local opened = false
-    local buttons = {}
-    
-    local function updateText()
-        if isMulti then
-            local vals = {}
-            for k, v in pairs(selected) do
-                if v then table.insert(vals, k) end
-            end
-            btnLabel.Text = #vals > 0 and table.concat(vals, ", ") or "None"
-            safeCallback(vals)
-        else
-            btnLabel.Text = tostring(selected)
-            safeCallback(selected)
+    -- Hover
+    tabBtn.MouseEnter:Connect(function()
+        if Trinity.State.CurrentTab ~= name then
+            SafeTween(tabBtn, {BackgroundTransparency = 0.9}, 0.2)
         end
+    end)
+    
+    tabBtn.MouseLeave:Connect(function()
+        if Trinity.State.CurrentTab ~= name then
+            SafeTween(tabBtn, {BackgroundTransparency = 1}, 0.2)
+        end
+    end)
+    
+    -- Auto-switch to first tab
+    if not Trinity.State.CurrentTab then
+        Trinity.SwitchTab(name)
     end
     
-    local function toggleList()
-        opened = not opened
-        if opened then
-            list.Visible = true
-            SafeTween(list, {Size = UDim2.new(1, -20, 0, math.min(#options * 25, 150))}, 0.2)
-            SafeTween(arrow, {Rotation = 180}, 0.2)
-        else
-            SafeTween(list, {Size = UDim2.new(1, -20, 0, 0)}, 0.2)
-            SafeTween(arrow, {Rotation = 0}, 0.2)
-            task.delay(0.2, function()
-                if not opened then list.Visible = false end
+    return page
+end
+
+function Trinity.SwitchTab(name)
+    local tab = Trinity.State.Tabs[name]
+    if not tab then return end
+    
+    -- Hide all tabs
+    for n, t in pairs(Trinity.State.Tabs) do
+        t.Page.Visible = false
+        SafeTween(t.Button, {BackgroundTransparency = 1}, 0.3)
+        t.Indicator.Visible = false
+        SafeTween(t.Icon, {ImageColor3 = Trinity.Theme.TextSecondary}, 0.3)
+        SafeTween(t.Label, {TextColor3 = Trinity.Theme.TextSecondary}, 0.3)
+    end
+    
+    -- Show selected
+    tab.Page.Visible = true
+    SafeTween(tab.Button, {BackgroundTransparency = 0.85}, 0.3)
+    tab.Indicator.Visible = true
+    SafeTween(tab.Icon, {ImageColor3 = Trinity.Theme.Primary}, 0.3)
+    SafeTween(tab.Label, {TextColor3 = Trinity.Theme.TextPrimary}, 0.3)
+    
+    Trinity.State.CurrentTab = name
+    
+    -- Update breadcrumb
+    PageTitle.Text = name
+end
+
+-- ==========================================
+-- INSPECTOR WIDGETS
+-- ==========================================
+
+function Trinity.AddInspectorCard(title)
+    local card = Instance.new("Frame")
+    card.Parent = InspectorContent
+    card.BackgroundColor3 = Trinity.Theme.ContainerBg
+    card.BackgroundTransparency = 0.3
+    card.Size = UDim2.new(1, -20, 0, 0)
+    card.Position = UDim2.new(0, 10, 0, 0)
+    card.AutomaticSize = Enum.AutomaticSize.Y
+    
+    AddGlassEffects(card, 8)
+    
+    local header = Instance.new("TextLabel")
+    header.Parent = card
+    header.BackgroundTransparency = 1
+    header.Position = UDim2.new(0, 15, 0, 12)
+    header.Size = UDim2.new(1, -30, 0, 20)
+    header.Font = Enum.Font.GothamBold
+    header.Text = title
+    header.TextColor3 = Trinity.Theme.TextPrimary
+    header.TextSize = 13
+    header.TextXAlignment = Enum.TextXAlignment.Left
+    
+    local content = Instance.new("Frame")
+    content.Parent = card
+    content.BackgroundTransparency = 1
+    content.Position = UDim2.new(0, 15, 0, 40)
+    content.Size = UDim2.new(1, -30, 0, 0)
+    content.AutomaticSize = Enum.AutomaticSize.Y
+    
+    local layout = Instance.new("UIListLayout")
+    layout.Parent = content
+    layout.Padding = UDim.new(0, 10)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    
+    -- Padding at bottom
+    local padding = Instance.new("Frame")
+    padding.Parent = content
+    padding.BackgroundTransparency = 1
+    padding.Size = UDim2.new(1, 0, 0, 10)
+    padding.LayoutOrder = 999999
+    
+    return content
+end
+
+-- Quick Actions Grid
+function Trinity.AddQuickActions(actions)
+    local grid = Instance.new("Frame")
+    grid.Parent = InspectorContent
+    grid.BackgroundTransparency = 1
+    grid.Size = UDim2.new(1, -20, 0, 0)
+    grid.Position = UDim2.new(0, 10, 0, 0)
+    grid.AutomaticSize = Enum.AutomaticSize.Y
+    
+    local layout = Instance.new("UIGridLayout")
+    layout.Parent = grid
+    layout.CellSize = UDim2.new(0, 45, 0, 45)
+    layout.CellPadding = UDim2.new(0, 8, 0, 8)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    
+    for _, action in ipairs(actions) do
+        local btn = Instance.new("TextButton")
+        btn.Parent = grid
+        btn.BackgroundColor3 = Trinity.Theme.ElevatedBg
+        btn.Size = UDim2.new(0, 45, 0, 45)
+        btn.Text = action.icon or "⚡"
+        btn.Font = Enum.Font.GothamBold
+        btn.TextColor3 = action.color or Trinity.Theme.Primary
+        btn.TextSize = 20
+        btn.AutoButtonColor = false
+        
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 10)
+        corner.Parent = btn
+        
+        -- Tooltip
+        local tooltip = Instance.new("TextLabel")
+        tooltip.Parent = btn
+        tooltip.BackgroundColor3 = Trinity.Theme.ElevatedBg
+        tooltip.BackgroundTransparency = 0.1
+        tooltip.BorderSizePixel = 0
+        tooltip.Position = UDim2.new(0.5, 0, 0, -30)
+        tooltip.AnchorPoint = Vector2.new(0.5, 0)
+        tooltip.Size = UDim2.new(0, 80, 0, 24)
+        tooltip.Font = Enum.Font.GothamMedium
+        tooltip.Text = action.name or "Action"
+        tooltip.TextColor3 = Trinity.Theme.TextPrimary
+        tooltip.TextSize = 11
+        tooltip.Visible = false
+        tooltip.ZIndex = 100
+        
+        local ttCorner = Instance.new("UICorner")
+        ttCorner.CornerRadius = UDim.new(0, 4)
+        ttCorner.Parent = tooltip
+        
+        btn.MouseEnter:Connect(function()
+            SafeTween(btn, {BackgroundColor3 = Trinity.Theme.Primary}, 0.2)
+            btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            tooltip.Visible = true
+            SafeTween(tooltip, {Position = UDim2.new(0.5, 0, 0, -35)}, 0.2)
+        end)
+        
+        btn.MouseLeave:Connect(function()
+            SafeTween(btn, {BackgroundColor3 = Trinity.Theme.ElevatedBg}, 0.2)
+            btn.TextColor3 = action.color or Trinity.Theme.Primary
+            SafeTween(tooltip, {Position = UDim2.new(0.5, 0, 0, -30)}, 0.2)
+            tooltip.Visible = false
+        end)
+        
+        btn.MouseButton1Click:Connect(function()
+            if action.callback then action.callback() end
+        end)
+    end
+    
+    return grid
+end
+
+-- ==========================================
+-- UTILITY FUNCTIONS
+-- ==========================================
+
+function Trinity.Notify(title, message, type, duration)
+    type = type or "info"
+    duration = duration or 5
+    
+    local colors = {
+        info = Trinity.Theme.Info,
+        success = Trinity.Theme.Success,
+        warning = Trinity.Theme.Warning,
+        error = Trinity.Theme.Danger
+    }
+    
+    local color = colors[type] or colors.info
+    
+    local notif = Instance.new("Frame")
+    notif.Parent = ScreenGui
+    notif.BackgroundColor3 = Trinity.Theme.PanelBg
+    notif.BackgroundTransparency = 0.1
+    notif.Position = UDim2.new(1, 300, 1, -100)
+    notif.Size = UDim2.new(0, 300, 0, 0)
+    notif.AutomaticSize = Enum.AutomaticSize.Y
+    notif.ZIndex = 1000
+    
+    AddGlassEffects(notif, 12)
+    
+    -- Accent bar
+    local bar = Instance.new("Frame")
+    bar.Parent = notif
+    bar.BackgroundColor3 = color
+    bar.BorderSizePixel = 0
+    bar.Position = UDim2.new(0, 0, 0, 0)
+    bar.Size = UDim2.new(0, 4, 1, 0)
+    
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Parent = notif
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Position = UDim2.new(0, 20, 0, 12)
+    titleLabel.Size = UDim2.new(1, -40, 0, 20)
+    titleLabel.Font = Enum.Font.GothamBold
+    titleLabel.Text = title
+    titleLabel.TextColor3 = Trinity.Theme.TextPrimary
+    titleLabel.TextSize = 14
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    
+    local msgLabel = Instance.new("TextLabel")
+    msgLabel.Parent = notif
+    msgLabel.BackgroundTransparency = 1
+    msgLabel.Position = UDim2.new(0, 20, 0, 36)
+    msgLabel.Size = UDim2.new(1, -40, 0, 0)
+    msgLabel.Font = Enum.Font.GothamMedium
+    msgLabel.Text = message
+    msgLabel.TextColor3 = Trinity.Theme.TextSecondary
+    msgLabel.TextSize = 12
+    msgLabel.TextWrapped = true
+    msgLabel.TextXAlignment = Enum.TextXAlignment.Left
+    msgLabel.AutomaticSize = Enum.AutomaticSize.Y
+    
+    local closePadding = Instance.new("Frame")
+    closePadding.Parent = notif
+    closePadding.BackgroundTransparency = 1
+    closePadding.Size = UDim2.new(1, 0, 0, 12)
+    closePadding.Position = UDim2.new(0, 0, 1, 0)
+    closePadding.LayoutOrder = 100
+    
+    -- Animate in
+    SafeTween(notif, {Position = UDim2.new(1, -320, 1, -100)}, 0.5)
+    
+    -- Auto close
+    task.delay(duration, function()
+        SafeTween(notif, {Position = UDim2.new(1, 300, 1, -100)}, 0.5)
+        task.wait(0.5)
+        notif:Destroy()
+    end)
+end
+
+function Trinity.SetVisibility(visible)
+    Trinity.State.UIVisible = visible
+    local targetBlur = visible and 20 or 0
+    local targetTrans = visible and 0 or 1
+    
+    SafeTween(MainFrame, {Position = visible and UDim2.new(0.5, -550, 0.5, -300) or UDim2.new(0.5, -550, 0.5, -200)}, 0.5)
+    SafeTween(Blur, {Size = targetBlur}, 0.5)
+    
+    for _, panel in ipairs({Sidebar, ContentPanel, InspectorPanel}) do
+        SafeTween(panel, {BackgroundTransparency = visible and Trinity.Theme.GlassTransparency or 1}, 0.5)
+    end
+end
+
+function Trinity.SetTheme(primary, secondary)
+    Trinity.Theme.Primary = primary or Trinity.Theme.Primary
+    Trinity.Theme.Secondary = secondary or Trinity.Theme.Secondary
+    
+    -- Update all accent elements
+    for _, obj in ipairs(Trinity.State.Accents or {}) do
+        if obj and obj.Parent then
+            SafeTween(obj, {Color = Trinity.Theme.Primary}, 0.3)
+        end
+    end
+end
+
+-- Draggable Support
+function Trinity.MakeDraggable(handle, target)
+    target = target or handle
+    local dragging = false
+    local dragInput, dragStart, startPos
+    
+    handle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = target.Position
+            
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
             end)
         end
-    end
+    end)
     
-    btn.MouseButton1Click:Connect(toggleList)
-    
-    for _, opt in ipairs(options) do
-        local optBtn = Instance.new("TextButton")
-        optBtn.Parent = list
-        optBtn.BackgroundTransparency = 1
-        optBtn.Size = UDim2.new(1, 0, 0, 25)
-        optBtn.Text = ""
-        optBtn.ZIndex = 21
-        
-        local optLabel = Instance.new("TextLabel")
-        optLabel.Parent = optBtn
-        optLabel.BackgroundTransparency = 1
-        optLabel.Position = UDim2.new(0, 8, 0, 0)
-        optLabel.Size = UDim2.new(1, 0, 1, 0)
-        optLabel.Font = Enum.Font.GothamMedium
-        optLabel.Text = opt
-        optLabel.TextColor3 = Modular.Theme.TextDim
-        optLabel.TextSize = 11
-        optLabel.TextXAlignment = Enum.TextXAlignment.Left
-        optLabel.ZIndex = 21
-        
-        optBtn.MouseEnter:Connect(function()
-            SafeTween(optBtn, {BackgroundTransparency = 0.8}, 0.1)
-            optLabel.TextColor3 = Modular.Theme.TextMain
-        end)
-        
-        optBtn.MouseLeave:Connect(function()
-            SafeTween(optBtn, {BackgroundTransparency = 1}, 0.1)
-            optLabel.TextColor3 = Modular.Theme.TextDim
-        end)
-        
-        optBtn.MouseButton1Click:Connect(function()
-            if isMulti then
-                selected[opt] = not selected[opt]
-                optLabel.TextColor3 = selected[opt] and Modular.Theme.Accent or Modular.Theme.TextDim
-            else
-                selected = opt
-                toggleList()
-            end
-            updateText()
-        end)
-        
-        buttons[opt] = optBtn
-    end
-    
-    UserInputService.InputBegan:Connect(function(input, processed)
-        if processed or not opened then return end
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            local mouse = UserInputService:GetMouseLocation()
-            if not (mouse.X >= list.AbsolutePosition.X and mouse.X <= list.AbsolutePosition.X + list.AbsoluteSize.X and
-                    mouse.Y >= list.AbsolutePosition.Y and mouse.Y <= list.AbsolutePosition.Y + list.AbsoluteSize.Y) and
-               not (mouse.X >= btn.AbsolutePosition.X and mouse.X <= btn.AbsolutePosition.X + btn.AbsoluteSize.X and
-                    mouse.Y >= btn.AbsolutePosition.Y and mouse.Y <= btn.AbsolutePosition.Y + btn.AbsoluteSize.Y) then
-                toggleList()
-            end
+    handle.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
         end
     end)
     
-    return {
-        Get = function()
-            if isMulti then
-                local result = {}
-                for k, v in pairs(selected) do if v then table.insert(result, k) end end
-                return result
-            else
-                return selected
-            end
-        end,
-        Set = function(val)
-            if isMulti then
-                selected = {}
-                for _, v in ipairs(val or {}) do selected[v] = true end
-            else
-                selected = val
-            end
-            updateText()
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            target.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
         end
-    }
-end
-
-function Modular.AddButton(category, text, callback)
-    local safeCallback = callback or function() end
-    
-    local btn = Instance.new("TextButton")
-    btn.Parent = category.Container
-    btn.BackgroundColor3 = Modular.Theme.DarkContainer
-    btn.Size = UDim2.new(1, -20, 0, 30)
-    btn.Position = UDim2.new(0, 10, 0, 0)
-    btn.Text = text
-    btn.TextColor3 = Modular.Theme.TextMain
-    btn.Font = Enum.Font.GothamMedium
-    btn.TextSize = 12
-    btn.AutoButtonColor = false
-    
-    local btnCorner = Instance.new("UICorner")
-    btnCorner.CornerRadius = UDim.new(0, 4)
-    btnCorner.Parent = btn
-    
-    local btnStroke = Instance.new("UIStroke")
-    btnStroke.Color = Modular.Theme.Stroke
-    btnStroke.Thickness = 1
-    btnStroke.Parent = btn
-    
-    btn.MouseEnter:Connect(function()
-        SafeTween(btn, {BackgroundColor3 = Modular.Theme.Hover}, 0.1)
     end)
-    
-    btn.MouseLeave:Connect(function()
-        SafeTween(btn, {BackgroundColor3 = Modular.Theme.DarkContainer}, 0.1)
-    end)
-    
-    btn.MouseButton1Click:Connect(safeCallback)
-    
-    return btn
 end
 
-function Modular.AddTextbox(category, name, default, placeholder, callback)
-    local safeCallback = callback or function() end
-    
-    local container = Instance.new("Frame")
-    container.Parent = category.Container
-    container.BackgroundTransparency = 1
-    container.Size = UDim2.new(1, 0, 0, 50)
-    
-    local label = Instance.new("TextLabel")
-    label.Parent = container
-    label.BackgroundTransparency = 1
-    label.Position = UDim2.new(0, 10, 0, 0)
-    label.Size = UDim2.new(1, 0, 0, 20)
-    label.Font = Enum.Font.GothamMedium
-    label.Text = name
-    label.TextColor3 = Modular.Theme.TextDim
-    label.TextSize = 12
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    
-    local box = Instance.new("Frame")
-    box.Parent = container
-    box.BackgroundColor3 = Modular.Theme.DarkContainer
-    box.Position = UDim2.new(0, 10, 0, 22)
-    box.Size = UDim2.new(1, -20, 0, 25)
-    box.BorderSizePixel = 0
-    
-    local boxCorner = Instance.new("UICorner")
-    boxCorner.CornerRadius = UDim.new(0, 3)
-    boxCorner.Parent = box
-    
-    local boxStroke = Instance.new("UIStroke")
-    boxStroke.Color = Modular.Theme.Stroke
-    boxStroke.Thickness = 1
-    boxStroke.Parent = box
-    
-    local textbox = Instance.new("TextBox")
-    textbox.Parent = box
-    textbox.BackgroundTransparency = 1
-    textbox.Size = UDim2.new(1, -16, 1, 0)
-    textbox.Position = UDim2.new(0, 8, 0, 0)
-    textbox.Font = Enum.Font.GothamMedium
-    textbox.Text = default or ""
-    textbox.PlaceholderText = placeholder or ""
-    textbox.TextColor3 = Modular.Theme.TextMain
-    textbox.TextSize = 11
-    textbox.ClearTextOnFocus = false
-    
-    textbox.Focused:Connect(function()
-        SafeTween(boxStroke, {Color = Modular.Theme.Accent}, 0.2)
-    end)
-    
-    textbox.FocusLost:Connect(function()
-        SafeTween(boxStroke, {Color = Modular.Theme.Stroke}, 0.2)
-        safeCallback(textbox.Text)
-    end)
-    
-    return {
-        Get = function() return textbox.Text end,
-        Set = function(val) textbox.Text = val end
-    }
-end
+-- Initialize blur
+SafeTween(Blur, {Size = 20}, 1)
 
-function Modular.AddDivider(category)
-    local div = Instance.new("Frame")
-    div.Parent = category.Container
-    div.BackgroundColor3 = Modular.Theme.Stroke
-    div.Size = UDim2.new(1, -20, 0, 1)
-    div.Position = UDim2.new(0, 10, 0, 0)
-    div.BorderSizePixel = 0
-    return div
-end
+-- Make draggable from header
+Trinity.MakeDraggable(ContentHeader, MainFrame)
 
--- Config System
-local UI_MENU_FOLDER = "Modular"
-local UI_MENU_FILE = UI_MENU_FOLDER .. "/MenuState.json"
-local THEME_FILE = UI_MENU_FOLDER .. "/ui_theme.json"
-
-local function EnsureStorage()
-    SafeFileSystem.MakeFolder(UI_MENU_FOLDER)
-end
-
-local function LoadState(defaults)
-    EnsureStorage()
-    local data = SafeFileSystem.Read(UI_MENU_FILE)
-    if data then
-        local ok, decoded = pcall(function() return SafeFileSystem.JSONDecode(data) end)
-        if ok and type(decoded) == "table" then
-            for k, v in pairs(defaults) do
-                if decoded[k] == nil then
-                    decoded[k] = v
-                end
-            end
-            return decoded
-        end
-    end
-    SafeFileSystem.Write(UI_MENU_FILE, SafeFileSystem.JSONEncode(defaults))
-    return defaults
-end
-
-local function SaveState()
-    EnsureStorage()
-    SafeFileSystem.Write(UI_MENU_FILE, SafeFileSystem.JSONEncode(GlobalEnv.ModularStorage.MenuDefaults or {}))
-end
-
--- Initialize Defaults
-GlobalEnv.ModularStorage.MenuDefaults = LoadState({
-    watermark_enabled = true,
-    accent_color = Color3.fromRGB(255, 182, 193),
-    ui_visible = true
-})
-
-local MenuDefaults = GlobalEnv.ModularStorage.MenuDefaults
-
--- Color Themes
-local ColorThemes = {
-    LightPink = Color3.fromRGB(255, 182, 193),
-    LightBlue = Color3.fromRGB(173, 216, 230),
-    LightMint = Color3.fromRGB(152, 255, 152),
-    Orange = Color3.fromRGB(255, 160, 122),
-    Red = Color3.fromRGB(255, 100, 100),
-    Purple = Color3.fromRGB(147, 112, 219),
-    Cyan = Color3.fromRGB(0, 255, 255)
-}
-
--- Settings Category (Auto-added)
-local SettingsCat = Modular.AddCategory("Settings")
-
--- Theme Dropdown
-local themeOptions = {}
-for name, _ in pairs(ColorThemes) do
-    table.insert(themeOptions, name)
-end
-
-Modular.AddDropdown(SettingsCat, "Theme", themeOptions, "LightPink", function(selected)
-    if ColorThemes[selected] then
-        UpdateAccentColor(ColorThemes[selected])
-        MenuDefaults.accent_color = ColorThemes[selected]
-        SaveState()
-    end
-end)
-
--- Watermark Toggle
-Modular.AddToggle(SettingsCat, "Watermark", MenuDefaults.watermark_enabled, function(state)
-    MenuDefaults.watermark_enabled = state
-    WatermarkFrame.Visible = state
-    SaveState()
-end)
-
-WatermarkFrame.Visible = MenuDefaults.watermark_enabled
-
--- Unload Button
-Modular.AddButton(SettingsCat, "Unload UI", function()
-    ScreenGui:Destroy()
-    if Blur then Blur:Destroy() end
-end)
-
--- Set initial accent
-if MenuDefaults.accent_color then
-    UpdateAccentColor(MenuDefaults.accent_color)
-end
-
--- Keybind to toggle UI visibility
-local uiVisible = true
-UserInputService.InputBegan:Connect(function(input, gpe)
-    if gpe then return end
-    if input.KeyCode == Enum.KeyCode.RightAlt then
-        uiVisible = not uiVisible
-        MainFrame.Visible = uiVisible
-        WatermarkFrame.Visible = uiVisible and MenuDefaults.watermark_enabled
-    end
-end)
-
--- Expose functions
-Modular.UpdateAccentColor = UpdateAccentColor
-Modular.TrackAccentElement = TrackAccentElement
-Modular.SafeTween = SafeTween
-Modular.ColorThemes = ColorThemes
-
-return Modular
+return Trinity
